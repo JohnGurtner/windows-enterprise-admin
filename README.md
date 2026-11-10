@@ -1,47 +1,86 @@
 # Windows Enterprise Administration
 
-> A full semester building and running a multi-server Windows Server enterprise for a fictional
-> company (WoodRock) — Active Directory, Group Policy, virtualization, file services, patching, and
-> web hosting across a team of three.
+> A full semester building and running a multi-site Windows Server enterprise for a fictional wood
+> company, **WoodRock**. The work covers Active Directory, Group Policy, Nutanix virtualization,
+> TrueNAS storage, backups, IIS, WSUS, DFS, print services and remote management, built by a team of three.
 
-*CNIT 242 — Enterprise System Administration (Labs 1–5), Group 3.*
+*CNIT 242 (Enterprise System Administration), Labs 1–5, Group 3.*
 
-## Summary
+## What this repo contains
 
-Progressively stood up and administered a real multi-domain Windows environment: a parent domain
-plus child domains, multiple domain controllers, a Nutanix virtualization layer, network file
-services, centralized patching, and locked-down IIS sites. Every control has a security angle —
-least-privilege groups, GPO enforcement, access-controlled shares, IP restrictions, and a firewall.
+Each lab has its own write-up in [`docs/`](docs/) with the **full procedure**: what was built, the
+exact settings and commands used, how it was verified, and what broke along the way and how we fixed it.
 
-## Environment
-
-- Windows Server 2022/2025, Windows 11 clients
-- Active Directory forest: `group03.c24200.cit.lcl` + child domains
-- Nutanix AHV / Community Edition + Prism Central
-- TrueNAS, IIS, WSUS, DFS, Windows Admin Center
-
-## What I built (by lab)
-
-| Lab | Focus | Security-relevant work |
+| Lab | Write-up | What gets built |
 | --- | --- | --- |
-| 1 — Windows Infrastructure | AD DS install, new forest, static IP/DNS | Domain foundation, server naming, admin password reset |
-| 2 — Windows Administration | OUs, Domain Local + Global groups, GPOs | Group **nesting** for least privilege, password policy, disk quotas, folder redirection, `regedit` lockdown GPO |
-| 3 — Enterprise Virtualization | Nutanix AHV/CE, Prism Central, templates | DC demotion/promotion, FSMO transfer, live migration, VM templates with Sysprep |
-| 4 — Windows Server Admin | TrueNAS SMB shares, backups, IIS | **SMB ACLs**, scheduled backup scripts, public/private/site-specific IIS sites, **IP restrictions**, host firewall, per-dept authorization policies |
-| 5 — Windows Server Admin II | WSUS, DFS, print mgmt, WAC | Centralized **patching (WSUS)**, replicated DFS namespaces, print permissions/priorities, PowerShell remoting, remote mgmt via WAC |
+| 1 | [Windows Infrastructure](docs/lab1-windows-infrastructure.md) | Bare-metal Windows Server installs, a new AD forest, two child domains, RDP, patching and time sync |
+| 2 | [Windows Administration](docs/lab2-windows-administration.md) | OUs, AGDLP security groups, NTFS permissions, GPOs, folder redirection, roaming profiles, quotas, print server |
+| 3 | [Enterprise Virtualization](docs/lab3-enterprise-virtualization.md) | Two Nutanix AHV clusters and Prism Central, golden-image templates, P2V migration of every DC, FSMO transfers, live migration |
+| 4 | [Windows Server Administration](docs/lab4-windows-server-administration.md) | LDAP integration, TrueNAS SMB storage, scripted backups, a second AD site, Nutanix RBAC, IIS with tiered access control |
+| 5 | [Windows Server Administration II](docs/lab5-windows-server-administration-2.md) | WSUS patch management, DFS namespaces and replication, print management, PowerShell remoting, Windows Admin Center |
+
+Supporting files:
+
+- [`scripts/`](scripts/): the backup rotation scripts, FSMO transfer commands and firewall rules used in the labs
+- [`screenshots/`](screenshots/): configuration evidence from the original reports
+
+## Final environment
+
+```
+                         AD forest: group03.c24200.cit.lcl
+            ┌───────────────────────────┴────────────────────────────┐
+   group03.c24200.cit.lcl (parent)                     c242-03-a.group03.c24200.cit.lcl (child)
+   Accounting · HR · Executive                         Outside Sales · Inside Sales · Account Mgmt
+   DCs: G03SRV01VM, G03SRV04 (site 2), G03SRV05        DC: G03SRV03VM
+
+ Nutanix cluster G03NUTXSRV01 ─┐                   ┌─ Nutanix cluster G03NUTXSRV02
+                               ├── Prism Central ──┤
+                                                   
+ Site 1  44.38.3.0/24    DCs, TrueNAS (BackupSet03 / GeneralSet03), IIS + WAC (G03SRV06),
+                         WSUS (G03SRV07), Windows 11 clients
+ Site 2  44.38.103.0/24  VLAN 1903, G03SRV04 (DC + DFS replica), G03S2WIN11
+```
+
+| Host | Role | Address |
+| --- | --- | --- |
+| G03SRV01VM | Parent-domain DC, DNS, file/print, DFS primary, backups | 44.38.3.31 |
+| G03SRV03VM | Child-domain (c242-03-a) DC | 44.38.3.20 |
+| G03SRV04 | Site-2 DC, DFS replica | 44.38.103.2 |
+| G03SRV05 | DC holding the Domain Naming, RID and Infrastructure master roles | 44.38.3.67 |
+| G03SRV06 | IIS web server, Windows Admin Center | 44.38.3.55 |
+| G03SRV07 | WSUS | 44.38.3.70 |
+| G03TRUENAS | SMB storage joined to AD | 44.38.3.50 |
+| Prism Central | Nutanix management plane | 44.38.3.12 |
+
+## Highlights
+
+- **Least privilege by design.** Every department uses the AGDLP model: users go into Global groups,
+  which are nested into `_READ_DL` and `_MOD_DL` Domain Local groups, and only the DL groups appear on
+  folder ACLs and share permissions.
+- **Infrastructure migration without downtime to the directory.** Every physical domain controller was
+  replaced by a VM. That meant demoting each one, wiping it, rebuilding it as a Nutanix node, and moving
+  the FSMO roles with PowerShell first, then checking replication with `repadmin`.
+- **Tiered web access.** One IIS server hosts a public site, a domain-authenticated site, and a site
+  that also requires on-site IP addresses, each behind its own firewall rule.
+- **Operations, not just setup.** The environment includes scheduled backups with retention, WSUS-managed
+  patching through GPO, DFS replication across two sites, and remote management over WinRM and WAC.
+
+## Environment & tools
+
+Windows Server 2022/2025 · Windows 11 · Active Directory DS / DNS · Group Policy · Nutanix CE (AHV,
+Prism Element, Prism Central) · TrueNAS 13 · Windows Server Backup · IIS · WSUS · DFS-N / DFS-R ·
+Print Management · Windows Admin Center · PowerShell · VMware Workstation
 
 ## Why it's in a security portfolio
 
-Defenders have to understand the enterprise they're protecting. This is the Windows/AD side of that:
-how domains, GPOs, and shares actually enforce access, where patching and backups fit, and how a real
-multi-server environment is segmented and administered.
-
-## Screenshots
-
-See [`screenshots/`](screenshots/) for AD/OU structure, GPOs, the Nutanix cluster, TrueNAS shares,
-IIS site restrictions, and WSUS/DFS configuration.
+Defenders need to understand the enterprise they're protecting. This is the Windows/AD side of that:
+how domains, GPOs and ACLs actually enforce access, where patching and backups fit in, what privileged
+groups (Schema/Enterprise Admins) are needed for and why, and how a multi-site environment is segmented
+and administered. Several write-ups also point out where a lab shortcut would be a real-world risk.
 
 ## Skills demonstrated
 
-Active Directory · Group Policy · least-privilege group design · Nutanix virtualization · FSMO roles ·
-SMB/ACLs · WSUS patching · DFS replication · IIS access control · PowerShell remoting
+Active Directory forest/domain design · AGDLP group strategy · NTFS & share permissions · Group Policy ·
+FSMO roles & AD replication · AD Sites and Services · hyperconverged virtualization (Nutanix) · VM
+templating with Sysprep · RBAC · SMB storage & ACLs · backup automation · IIS authentication & IP
+restrictions · Windows Firewall · WSUS · DFS · PowerShell remoting · troubleshooting
